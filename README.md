@@ -2,6 +2,9 @@
 This is program to display acquired stars in casual playthrough! App reads game memory and depending on it displays Stars, Keys and 
 Caps automatically. The level you are at is highlighted with yellow rectangle. 
 
+# Differences between this branch and main branch
+None so far, however I'm planning on adding features that I thought of into this.
+
 # How to use?
 Start Project64 1.6 (or any other version you like) and load ROM with hack. Download [Star Display](https://github.com/aglab2/SM64StarDisplay/releases/download/1.1/StarManager.exe), decompress zip file, go to unpacked folder. Execute StarDisplay.exe and wait for it to load. If your hack has layout support, it should load automatically. Else make your own layout, give it a try!
 
