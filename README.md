@@ -4,6 +4,7 @@ Caps automatically. The level you are at is highlighted with yellow rectangle.
 
 # Differences between this branch and main branch
 None so far, however I'm planning on adding features that I thought of into this.
+(this branch is for the RMR, it has an extra feature for the RMR. Don't use this if you're not participating in the RMR.)
 
 # How to use?
 Start Project64 1.6 (or any other version you like) and load ROM with hack. Download [Star Display](https://github.com/aglab2/SM64StarDisplay/releases/download/1.16/StarManager.exe), decompress zip file, go to unpacked folder. Execute StarDisplay.exe and wait for it to load. If your hack has layout support, it should load automatically. Else make your own layout, give it a try!
