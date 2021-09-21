@@ -11,6 +11,7 @@ using System.Drawing.Text;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
+using Newtonsoft.Json;
 
 namespace StarDisplay
 {
@@ -170,7 +171,9 @@ namespace StarDisplay
             "mupen64-RTZ",
             "mupen64-rerecording-v2-reset",
             "mupen64-rrv8-avisplit",
-            "mupen64-rerecording-v2-reset" };
+            "mupen64-rerecording-v2-reset",
+            // "retroarch" 
+        };
 
         private Process FindEmulatorProcess()
         {
@@ -354,6 +357,7 @@ namespace StarDisplay
 
                         mm.WriteToFile(ld.starsShown);
                     }
+                    if (!mm.IsDecomp)
                     {
                         var location = mm.GetLocation();
                         var netData = slf.sm.getNetData();
@@ -381,23 +385,26 @@ namespace StarDisplay
 
                 if (nmIsInvalidated)
                 {
-                    mm.WriteNetPatch();
-                    var state = mm.GetMarioState();
-                    if (slf.sm is object)
+                    if (!mm.IsDecomp)
                     {
-                        slf.sm.SendNet64Data(slf.GetNet64Name(), state, mm.GetLocation());
-                    }
-
-                    if (slf.nm.mustReload)
-                    {
-                        for (int i = 0; i < 16; i++)
+                        mm.WriteNetPatch();
+                        var state = mm.GetMarioState();
+                        if (slf.sm is object)
                         {
-                            mm.WriteNetState(i, null);
+                            slf.sm.SendNet64Data(slf.GetNet64Name(), state, mm.GetLocation());
                         }
-                        slf.nm.mustReload = false;
-                    }
 
-                    this.SafeInvoke((MethodInvoker)delegate { slf.UpdatePlayers(slf.nm.GetPlayers()); });
+                        if (slf.nm.mustReload)
+                        {
+                            for (int i = 0; i < 16; i++)
+                            {
+                                mm.WriteNetState(i, null);
+                            }
+                            slf.nm.mustReload = false;
+                        }
+
+                        this.SafeInvoke((MethodInvoker)delegate { slf.UpdatePlayers(slf.nm.GetPlayers()); });
+                    }
                 }
 
                 // We do not draw anything!
@@ -453,13 +460,13 @@ namespace StarDisplay
                             }
 
                             string exePath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-                            LoadLayoutNoInvalidate(exePath + "\\layout\\" + rm.GetROMName() + ".sml");
+                            LoadLayoutNoInvalidate(exePath + "\\layout\\" + rm.GetROMName() + ".jsml", false);
                         }
                         catch (IOException)
                         {
                             try
                             {
-                                dm = new DownloadManager(rm.GetROMName() + ".sml");
+                                dm = new DownloadManager(rm.GetROMName() + ".jsml");
                             }
                             catch(Exception) { }
                             LoadDefaultLayoutNoInvalidate();
@@ -527,6 +534,12 @@ namespace StarDisplay
 
         private void importIconsToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (mm.IsDecomp)
+            {
+                MessageBox.Show("Cannot extract assets from decomp ROM...", "Decomp Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             Bitmap image = mm.GetImage();
             ld = new LayoutDescriptionEx(ld.courseDescription, ld.secretDescription, image, ld.starAmount, ld.starsShown);
             InvalidateCache();
@@ -623,6 +636,12 @@ namespace StarDisplay
 
         private void EditWarps()
         {
+            if (mm.IsDecomp)
+            {
+                MessageBox.Show("No cheating on decomp ROMs allowed FUNgineer", "Decomp Error", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                return;
+            }
+
             int X = picX; int Y = picY;
             int line = (int)Math.Floor(Y / gm.SHeight);
             bool isSecret = ((int)Math.Floor(X / (gm.Width / 2))) == 1;
@@ -735,39 +754,55 @@ namespace StarDisplay
             picX = e.X; picY = e.Y;
         }
 
-        private void LoadLayout(string name)
+        private void LoadLayout(string name, bool showFail)
         {
-            LoadLayoutNoInvalidate(name);
+            LoadLayoutNoInvalidate(name, showFail);
             InvalidateCache();
         }
 
-        private void LoadLayoutNoInvalidate(string name)
+        private void LoadLayoutNoInvalidate(string name, bool showFail)
         {
-            IFormatter formatter = new BinaryFormatter();
-
             int TotalWidth = this.Width / ld.starsShown;
 
-            string ext = Path.GetExtension(name);
+            try
+            {
+                string ext = Path.GetExtension(name);
+                if (ext == ".sml")
+                {
+                    Stream stream = new FileStream(name, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    IFormatter formatter = new BinaryFormatter();
+                    object layout = formatter.Deserialize(stream);
+                    string layoutClassName = layout.GetType().Name;
 
-            Stream stream = new FileStream(name, FileMode.Open, FileAccess.Read, FileShare.Read);
-            object layout = formatter.Deserialize(stream);
-            string layoutClassName = layout.GetType().Name;
+                    if (layoutClassName == "LayoutDescriptionEx")
+                        ld = (LayoutDescriptionEx)layout;
+                    else
+                        MessageBox.Show("Failed to load layout, unknown extension", "Layour Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                else
+                {
+                    var json = File.ReadAllText(name);
+                    ld = JsonConvert.DeserializeObject<LayoutDescriptionEx>(json);
+                }
+            }
+            catch(Exception e)
+            {
+                if (showFail)
+                    MessageBox.Show($"Failed to load the layout {name}!");
+                else
+                    throw e;
 
-            if (layoutClassName == "LayoutDescription")
-                ld = new LayoutDescriptionEx((LayoutDescription) layout);
-            else if (layoutClassName == "LayoutDescriptionEx")
-                ld = (LayoutDescriptionEx) layout;
-            else
-                MessageBox.Show("Failed to load layout, unknown extension", "Layour Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
             ld.RecountStars();
-
-            this.SafeInvoke((MethodInvoker)delegate { this.Width = TotalWidth * ld.starsShown; });
 
             if (ld.darkStar == null) ld.GenerateDarkStar();
             if (ld.redOutline == null) ld.GenerateOutline();
             if (ld.invertedStar == null) ld.GenerateInvertedStar();
             ld.Trim();
+
+            this.SafeInvoke((MethodInvoker)delegate { this.Width = TotalWidth * ld.starsShown; });
         }
 
         private void LoadDefaultLayoutNoInvalidate()
@@ -779,56 +814,45 @@ namespace StarDisplay
         private void SaveLayout(string name)
         {
             ld.Trim();
-            IFormatter formatter = new BinaryFormatter();
-            Stream stream = new FileStream(name, FileMode.Create, FileAccess.Write, FileShare.None);
-            {
-                var invertedStar = ld.invertedStar;
-                ld.invertedStar = null;
-                formatter.Serialize(stream, ld);
-                ld.invertedStar = invertedStar;
-            }
-            stream.Close();
+
+            var redOutline = ld.redOutline;
+            var greenOutline = ld.greenOutline;
+            var invertedStar = ld.invertedStar;
+            ld.invertedStar = null;
+            ld.greenOutline = null;
+            ld.redOutline = null;
+            var json = JsonConvert.SerializeObject(ld);
+            ld.invertedStar = invertedStar;
+            ld.greenOutline = greenOutline;
+            ld.redOutline = redOutline;
+
+            File.WriteAllText(name, json);
         }
         
-        public void LoadExternal(string name)
-        {
-            throw new NotImplementedException();
-            //byte[] data = File.ReadAllBytes(name);
-            //ld = LayoutDescriptionEx.DeserializeExternal(data, mm.GetImage());
-            //InvalidateCache();
-        }
-
-        public void SaveExternal(string name)
-        {
-            throw new NotImplementedException();
-            //byte[] data = ld.SerializeExternal();
-            //File.WriteAllBytes(name, data);
-        }
-
-        private Exception LoadLayoutExc(string path)
-        {
-            Exception ret = null;
-
-            try
-            {
-                LoadLayout(path);
-            }
-            catch (Exception e)
-            {
-                ret = e;
-            }
-
-            return ret;
-        }
-
         private void loadToolStripMenuItem_Click(object sender, EventArgs e)
         {
+#if XD
+            foreach (var layoutPath in Directory.EnumerateFiles("C:\\Data\\layouts"))
+            {
+                var ext = Path.GetExtension(layoutPath);
+                if (ext != ".sml")
+                    continue;
+
+                var jsmlPath = Path.ChangeExtension(layoutPath, ".jsml");
+                if (File.Exists(jsmlPath))
+                    continue;
+
+                LoadLayout(layoutPath);
+                SaveLayout(jsmlPath);
+            }
+#endif
+
             try
             {
                 do
                 {
                     string exePath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-                    LoadLayout(exePath + "\\layout\\" + rm.GetROMName() + ".sml");
+                    LoadLayout(exePath + "\\layout\\" + rm.GetROMName() + ".jsml", true);
                 } while (false);
             }
             catch (IOException){
@@ -856,7 +880,7 @@ namespace StarDisplay
         {
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
-                Filter = "Star Manager Layout (*.sml)|*.sml|All files (*.*)|*.*",
+                Filter = "Star Manager Layout (*.sml,*.jsml,*.txt)|*.sml;*.jsml;*.txt|All files (*.*)|*.*",
                 FilterIndex = 1,
                 RestoreDirectory = false,
                 InitialDirectory = Path.GetDirectoryName(Application.ExecutablePath) + "\\layout"
@@ -866,10 +890,7 @@ namespace StarDisplay
             {
                 try
                 {
-                    if (openFileDialog.FilterIndex == 2)
-                        LoadExternal(openFileDialog.FileName);
-                    else
-                        LoadLayout(openFileDialog.FileName);
+                    LoadLayout(openFileDialog.FileName, true);
                 }
                 catch (IOException)
                 {
@@ -883,7 +904,7 @@ namespace StarDisplay
         {
             SaveFileDialog saveFileDialog = new SaveFileDialog
             {
-                Filter = "Star Manager Layout (*.sml)|*.sml|All files (*.*)|*.*",
+                Filter = "Star Manager Layout (*.jsml)|*.jsml|All files (*.*)|*.*",
                 FilterIndex = 1,
                 RestoreDirectory = false,
                 InitialDirectory = Path.GetDirectoryName(Application.ExecutablePath) + "\\layout"
@@ -893,11 +914,7 @@ namespace StarDisplay
             {
                 try
                 {
-
-                    if (saveFileDialog.FilterIndex == 2)
-                        SaveExternal(saveFileDialog.FileName);
-                    else
-                        SaveLayout(saveFileDialog.FileName);
+                    SaveLayout(saveFileDialog.FileName);
                 }
                 catch (IOException)
                 {
@@ -915,6 +932,12 @@ namespace StarDisplay
 
         private void importStarMasksToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (mm.IsDecomp)
+            {
+                MessageBox.Show("Cannot parse decomp ROMs", "Decomp Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
                 Filter = "ROM Files (*.z64)|*.z64",
@@ -945,6 +968,7 @@ namespace StarDisplay
             cp.ShowDialog();
             ld.goldStar = cp.newImg;
             ld.GenerateDarkStar();
+            ld.GenerateInvertedStar();
             InvalidateCache();
         }
 
@@ -1013,6 +1037,12 @@ namespace StarDisplay
 
         private void importIconsFromROMToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (mm.IsDecomp)
+            {
+                MessageBox.Show("Cannot import assets from decomp ROMs", "Decomp Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
                 Filter = "ROM Files (*.z64)|*.z64",
@@ -1174,6 +1204,12 @@ namespace StarDisplay
 
         private void warpToLevelToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (mm.IsDecomp)
+            {
+                MessageBox.Show("No cheating on decomp ROMs allowed FUNgineer", "Decomp Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             wd = new WarpDialog(mm.GetCurrentLevel());
             DialogResult r = wd.ShowDialog();
             if (r == DialogResult.OK)
@@ -1236,7 +1272,7 @@ namespace StarDisplay
                 string exePath = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
                 string layoutDir = exePath + "\\layout\\";
                 Directory.CreateDirectory(layoutDir);
-                string name = layoutDir + rm.GetROMName() + ".sml";
+                string name = layoutDir + rm.GetROMName() + ".jsml";
                 if (File.Exists(name))
                 {
                     var result = MessageBox.Show("Layout for this hack already exists! Do you want to overwrite it?", "Layour Error", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);

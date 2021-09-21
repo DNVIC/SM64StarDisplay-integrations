@@ -7,11 +7,50 @@ using LiveSplit.ComponentUtil;
 using System.IO;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
 
 namespace StarDisplay
 {
     public class MemoryManager : CachedManager
     {
+        static unsafe bool ByteArrayCompare(byte[] data1, byte[] data2)
+        {
+            if (data1 == data2)
+                return true;
+            if (data1.Length != data2.Length)
+                return false;
+
+            fixed (byte* bytes1 = data1, bytes2 = data2)
+            {
+                int len = data1.Length;
+                int rem = len % (sizeof(long) * 16);
+                long* b1 = (long*)bytes1;
+                long* b2 = (long*)bytes2;
+                long* e1 = (long*)(bytes1 + len - rem);
+
+                while (b1 < e1)
+                {
+                    if (*(b1) != *(b2) || *(b1 + 1) != *(b2 + 1) ||
+                        *(b1 + 2) != *(b2 + 2) || *(b1 + 3) != *(b2 + 3) ||
+                        *(b1 + 4) != *(b2 + 4) || *(b1 + 5) != *(b2 + 5) ||
+                        *(b1 + 6) != *(b2 + 6) || *(b1 + 7) != *(b2 + 7) ||
+                        *(b1 + 8) != *(b2 + 8) || *(b1 + 9) != *(b2 + 9) ||
+                        *(b1 + 10) != *(b2 + 10) || *(b1 + 11) != *(b2 + 11) ||
+                        *(b1 + 12) != *(b2 + 12) || *(b1 + 13) != *(b2 + 13) ||
+                        *(b1 + 14) != *(b2 + 14) || *(b1 + 15) != *(b2 + 15))
+                        return false;
+                    b1 += 16;
+                    b2 += 16;
+                }
+
+                for (int i = 0; i < rem; i++)
+                    if (data1[len - 1 - i] != data2[len - 1 - i])
+                        return false;
+
+                return true;
+            }
+        }
+
         public const int FileLength = 0x70;
         private const int MarioStateOff = 0x18;
         private const int MarioStateLength = 0x34;
@@ -23,7 +62,9 @@ namespace StarDisplay
 
         private int previousTime;
         private byte[] oldStars;
-        
+
+        bool isDecomp;
+        IntPtr verificationPtr; byte[] verificationData;
         IntPtr igtPtr; int igt;
         IntPtr[] filesPtr; IntPtr filePtr; byte[] stars;
 
@@ -59,10 +100,6 @@ namespace StarDisplay
 
         public bool isStarsInvalidated = false;
 
-        int[] courseLevels = { 0, 9, 24, 12, 5, 4, 7, 22, 8, 23, 10, 11, 36, 13, 14, 15 };
-        int[] secretLevels = { 0, 17, 19, 21, 27, 28, 29, 18, 31, 20, 25 };
-        int[] overworldLevels = { 6, 26, 16 };
-
         private int selectedFile;
 
         public int SelectedFile { get => selectedFile; set { if (selectedFile != value) isInvalidated = true; selectedFile = value; } }
@@ -72,9 +109,10 @@ namespace StarDisplay
         public byte Area { get => area; set { if (area != value) isInvalidated = true; area = value; } }
         public sbyte Reds { get => reds; set { if (reds != value) isInvalidated = true; reds = value; } }
         public byte SelectedStar { get => selectedStar; set { if (selectedStar != value) isInvalidated = true; selectedStar = value; } }
-        public ushort RomCRC { get => romCRC; set { if (romCRC != value) isInvalidated = true; romCRC = value; } }
+        public ushort RomCRC { get => romCRC; set { if (romCRC != value) { if (romCRC != 0) mm = null; isInvalidated = true; }; romCRC = value; } }
         public int RestSecrets { get => restSecrets; set { if (restSecrets != value) isInvalidated = true; restSecrets = value; } }
         public int ActivePanels { get => activePanels; set { if (activePanels != value) isInvalidated = true; activePanels = value; } }
+        public bool IsDecomp { get => isDecomp; }
 
         public MemoryManager(Process process)
         {
@@ -89,6 +127,9 @@ namespace StarDisplay
 
         public bool isReadyToRead()
         {
+            if (isDecomp)
+                return true;
+
             // We can read mem now, let's read Igt and check if it is big enough
             int igt = Process.ReadValue<int>(igtPtr);
             if (igt < 30)
@@ -109,7 +150,7 @@ namespace StarDisplay
 
             var name = Process.ProcessName.ToLower();
 
-            if (name.Contains("Project64"))
+            if (name.Contains("project64"))
             {
                 DeepPointer[] ramPtrBaseSuggestionsDPtrs = { new DeepPointer("Project64.exe", 0xD6A1C),     //1.6
                     new DeepPointer("RSP 1.7.dll", 0x4C054), new DeepPointer("RSP 1.7.dll", 0x44B5C),        //2.3.2; 2.4
@@ -176,17 +217,23 @@ namespace StarDisplay
                 { "mupen64-RTZ", 0x20 },
                 { "mupen64-rrv8-avisplit", 0x20 },
                 { "mupen64-rerecording-v2-reset", 0x20 },
+                { "retroarch", 0x40 },
             };
 
             // Process.ProcessName;
             mm = new MagicManager(Process, romPtrBaseSuggestions.ToArray(), ramPtrBaseSuggestions.ToArray(), offsets[Process.ProcessName]);
 
+            isDecomp = mm.isDecomp;
+            verificationPtr = new IntPtr(mm.ramPtrBase + mm.verificationOffset);
+            verificationData = mm.verificationBytes;
             igtPtr = new IntPtr(mm.ramPtrBase + 0x32D580);
+
+            // Can be found using bzero
             filesPtr = new IntPtr[4];
-            filesPtr[0] = new IntPtr(mm.ramPtrBase + 0x207700);
-            filesPtr[1] = new IntPtr(mm.ramPtrBase + 0x207770);
-            filesPtr[2] = new IntPtr(mm.ramPtrBase + 0x2077E0);
-            filesPtr[3] = new IntPtr(mm.ramPtrBase + 0x207850);
+            filesPtr[0] = new IntPtr(mm.ramPtrBase + mm.saveBufferOffset + mm.saveFileSize * 2 * 0);
+            filesPtr[1] = new IntPtr(mm.ramPtrBase + mm.saveBufferOffset + mm.saveFileSize * 2 * 1);
+            filesPtr[2] = new IntPtr(mm.ramPtrBase + mm.saveBufferOffset + mm.saveFileSize * 2 * 2);
+            filesPtr[3] = new IntPtr(mm.ramPtrBase + mm.saveBufferOffset + mm.saveFileSize * 2 * 3);
 
             levelPtr = new IntPtr(mm.ramPtrBase + 0x32DDFA);
             areaPtr = new IntPtr(mm.ramPtrBase + 0x33B249);
@@ -221,15 +268,6 @@ namespace StarDisplay
             {
                 try
                 {
-                    Process.PriorityClass = ProcessPriorityClass.RealTime;
-                    wasSet = true;
-                }
-                catch (Exception) { }
-            }
-            if (!wasSet)
-            {
-                try
-                {
                     Process.PriorityClass = ProcessPriorityClass.High;
                     wasSet = true;
                 }
@@ -245,6 +283,10 @@ namespace StarDisplay
 
         public void PerformRead()
         {
+            var curVerificationBytes = Process.ReadBytes(verificationPtr, verificationData.Length);
+            if (!ByteArrayCompare(curVerificationBytes, verificationData))
+                throw new ArgumentException("Verification failed");
+
             Igt = Process.ReadValue<int>(igtPtr);
             
             filePtr = filesPtr[SelectedFile];
@@ -253,21 +295,37 @@ namespace StarDisplay
                 Array.Reverse(stars, i, 4);
             Stars = stars;
 
-            Level = Process.ReadValue<byte>(levelPtr);
-            Area = Process.ReadValue<byte>(areaPtr);
-            Reds = Process.ReadValue<sbyte>(redsPtr);
-            
-            RestSecrets = GetSecrets();
-            ActivePanels = GetActivePanels();
-    
-            SelectedStar = Process.ReadValue<byte>(selectedStarPtr);
+            if (!isDecomp)
+            {
+                Level = Process.ReadValue<byte>(levelPtr);
+                Area = Process.ReadValue<byte>(areaPtr);
+                Reds = Process.ReadValue<sbyte>(redsPtr);
+
+                RestSecrets = GetSecrets();
+                ActivePanels = GetActivePanels();
+
+                SelectedStar = Process.ReadValue<byte>(selectedStarPtr);
+            }
+            else
+            {
+                Level = 0;
+                Area = 0;
+                Reds = 0;
+
+                RestSecrets = 0;
+                ActivePanels = 0;
+
+                SelectedStar = 0;
+            }
 
             RomCRC = Process.ReadValue<UInt16>(romCRCPtr);
         }
 
         public void DeleteStars()
         {
-            if (Igt > 200 || Igt < 60) return;
+            if (!isDecomp)
+                if (Igt > 200 || Igt < 60) 
+                    return;
 
             previousTime = Igt;
             byte[] data = Enumerable.Repeat((byte)0x00, FileLength).ToArray();
@@ -304,6 +362,9 @@ namespace StarDisplay
 
         public TextHighlightAction GetCurrentLineAction(LayoutDescriptionEx ld)
         {
+            if (isDecomp)
+                return null;
+
             int offset = GetCurrentOffset();
 
             int courseIndex = ld.courseDescription.FindIndex(lind => (lind is StarsLineDescription sld) ? sld.offset == offset : false);
@@ -343,18 +404,18 @@ namespace StarDisplay
             return request;
         }
 
-        public int GetSecrets()
+        int GetSecrets()
         {
             return SearchObjects(GetBehaviourRAMAddress(0x3F1C));
         }
 
-        public int GetActivePanels()
+        int GetActivePanels()
         {
             uint request = GetBehaviourRAMAddress(0x5D8);
             return SearchObjects(request, 1) + SearchObjects(request, 2); //1 - active, 2 - finalized
         }
 
-        public int GetAllPanels()
+        int GetAllPanels()
         {
             return SearchObjects(GetBehaviourRAMAddress(0x5D8));
         }
@@ -380,7 +441,7 @@ namespace StarDisplay
 
         public byte[] GetROM()
         {
-            int[] romSizesMB = new int[] { 64, 48, 32, 24, 16, 8 };
+            int[] romSizesMB = new int[] { 64, 48, 32, 24, 16, 8, 1 };
             byte[] rom = null;
             int romSize = 0;
             foreach (int sizeMB in romSizesMB)
@@ -452,35 +513,44 @@ namespace StarDisplay
         public DrawActions GetDrawActions(LayoutDescriptionEx ld, ROMManager rm, byte[] otherStars)
         {
             int totalReds = 0, reds = 0;
-            try
+            if (!isDecomp)
             {
-                totalReds = rm != null ? rm.ParseReds(Level, GetCurrentStar(), GetCurrentArea()) : 0;
-                reds = GetReds();
+                try
+                {
+                    totalReds = rm != null ? rm.ParseReds(Level, GetCurrentStar(), GetCurrentArea()) : 0;
+                    reds = GetReds();
+                }
+                catch (Exception) { }
+                if (totalReds != 0) //Fix reds amount -- intended total amount is 8, so we should switch maximum to totalReds
+                    reds += totalReds - 8;
+                else //If we got any reds we might not be able to read total amount properly, so we set total amount to current reds to display only them
+                    totalReds = reds;
             }
-            catch (Exception) { }
-            if (totalReds != 0) //Fix reds amount -- intended total amount is 8, so we should switch maximum to totalReds
-                reds += totalReds - 8;
-            else //If we got any reds we might not be able to read total amount properly, so we set total amount to current reds to display only them
-                totalReds = reds;
 
 
             //Operations are the same as with regular reds
             int totalSecrets = 0, secrets = 0;
-            try
+            if (!isDecomp)
             {
-                totalSecrets = rm != null ? rm.ParseSecrets(Level, GetCurrentStar(), GetCurrentArea()) : 0;
-                secrets = totalSecrets - restSecrets;
+                try
+                {
+                    totalSecrets = rm != null ? rm.ParseSecrets(Level, GetCurrentStar(), GetCurrentArea()) : 0;
+                    secrets = totalSecrets - restSecrets;
+                }
+                catch (Exception) { }
             }
-            catch (Exception) { }
 
             //Operations are the same as with regular reds
             int totalPanels = 0, activePanels = 0;
-            try
+            if (!isDecomp)
             {
-                totalPanels = rm != null ? rm.ParseFlipswitches(Level, GetCurrentStar(), GetCurrentArea()) : 0;
-                activePanels = ActivePanels;
+                try
+                {
+                    totalPanels = rm != null ? rm.ParseFlipswitches(Level, GetCurrentStar(), GetCurrentArea()) : 0;
+                    activePanels = ActivePanels;
+                }
+                catch (Exception) { }
             }
-            catch (Exception) { }
 
             DrawActions da = new DrawActions(ld, Stars, oldStars, otherStars, reds, totalReds, secrets, totalSecrets, activePanels, totalPanels);
             oldStars = Stars;
@@ -497,35 +567,44 @@ namespace StarDisplay
                 Array.Reverse(stars, i, 4);
 
             int totalReds = 0, reds = 0;
-            try
+            if (!isDecomp)
             {
-                totalReds = rm != null ? rm.ParseReds(level, GetCurrentStar(), GetCurrentArea()) : 0;
-                reds = Reds;
+                try
+                {
+                    totalReds = rm != null ? rm.ParseReds(level, GetCurrentStar(), GetCurrentArea()) : 0;
+                    reds = Reds;
+                }
+                catch (Exception) { }
+                if (totalReds != 0) //Fix reds amount -- intended total amount is 8, so we should switch maximum to totalReds
+                    reds += totalReds - 8;
+                else //If we got any reds we might not be able to read total amount properly, so we set total amount to current reds to display only them
+                    totalReds = reds;
             }
-            catch (Exception) { }
-            if (totalReds != 0) //Fix reds amount -- intended total amount is 8, so we should switch maximum to totalReds
-                reds += totalReds - 8;
-            else //If we got any reds we might not be able to read total amount properly, so we set total amount to current reds to display only them
-                totalReds = reds;
 
 
             //Operations are the same as with regular reds
             int totalSecrets = 0, secrets = 0;
-            try
+            if (!isDecomp)
             {
-                totalSecrets = rm != null ? rm.ParseSecrets(level, GetCurrentStar(), GetCurrentArea()) : 0;
-                secrets = totalSecrets - RestSecrets;
+                try
+                {
+                    totalSecrets = rm != null ? rm.ParseSecrets(level, GetCurrentStar(), GetCurrentArea()) : 0;
+                    secrets = totalSecrets - RestSecrets;
+                }
+                catch (Exception) { }
             }
-            catch (Exception) { }
 
             //Operations are the same as with regular reds
             int totalPanels = 0, activePanels = 0;
-            try
+            if (!isDecomp)
             {
-                totalPanels = rm != null ? rm.ParseFlipswitches(level, GetCurrentStar(), GetCurrentArea()) : 0;
-                activePanels = ActivePanels;
+                try
+                {
+                    totalPanels = rm != null ? rm.ParseFlipswitches(level, GetCurrentStar(), GetCurrentArea()) : 0;
+                    activePanels = ActivePanels;
+                }
+                catch (Exception) { }
             }
-            catch (Exception) { }
 
             DrawActions da = new CollectablesOnlyDrawActions(ld, stars, oldStars, reds, totalReds, secrets, totalSecrets, activePanels, totalPanels);
             oldStars = stars;
@@ -538,10 +617,12 @@ namespace StarDisplay
 
             UInt32 address = 0x33D488;
 
-           do
+            for (int i = 0; i < 300 /*obj limit*/; i++)
             {
                 IntPtr currentObjectPtr = new IntPtr(mm.ramPtrBase + (int)address);
                 byte[] data = Process.ReadBytes(currentObjectPtr, 0x260);
+                if (data is null)
+                    break;
 
                 UInt32 active = BitConverter.ToUInt32(data, 0x74);
                 if (active != 0)
@@ -557,7 +638,9 @@ namespace StarDisplay
                 }
 
                 address = BitConverter.ToUInt32(data, 0x8) & 0x7FFFFFFF;
-            } while (address != 0x33D488 && address != 0);
+                if (address == 0x33D488 || address == 0)
+                    break;
+            }
             return count;
         }
 
@@ -566,10 +649,13 @@ namespace StarDisplay
             int count = 0;
 
             UInt32 address = 0x33D488;
-            do
+
+            for (int i = 0; i < 300 /*obj limit*/; i++)
             {
                 IntPtr currentObjectPtr = new IntPtr(mm.ramPtrBase + (int)address);
                 byte[] data = Process.ReadBytes(currentObjectPtr, 0x260);
+                if (data is null)
+                    break;
 
                 UInt32 active = BitConverter.ToUInt32(data, 0x74);
                 if (active != 0)
@@ -587,7 +673,9 @@ namespace StarDisplay
                 }
 
                 address = BitConverter.ToUInt32(data, 0x8) & 0x7FFFFFFF;
-            } while (address != 0x33D488 && address != 0);
+                if (address == 0x33D488 || address == 0)
+                    break;
+            }
             //Console.WriteLine();
             return count;
         }
@@ -600,6 +688,9 @@ namespace StarDisplay
 
         public void FixStarCount(byte[] data, int maxShown)
         {
+            if (isDecomp)
+                return;
+
             int starCounter = countStars((byte)(data[0x8]), maxShown);
             // Fix star counter
             for (int i = 0xC; i <= 0x24; i++)
@@ -709,7 +800,7 @@ namespace StarDisplay
             Process.WriteBytes(areaPtr, new byte[] { areaID });
             Process.WriteBytes(spawnPointPtr, new byte[] { warpID });
             Process.WriteBytes(levelSpawnPtr, new byte[] { levelID });
-            Process.WriteBytes(hpPtr, new byte[] { 0x00, 0x08 });
+            Process.WriteBytes(hpPtr, new byte[] { 0x80, 0x08 });
             Process.WriteBytes(menuModifierPtr, new byte[] { 0x04, 0x00 });
             Process.WriteBytes(spawnStatusPtr, new byte[] { 0x02 });
             Process.WriteBytes(igtigtPtr, new byte[] { 0x00, 0x00 });

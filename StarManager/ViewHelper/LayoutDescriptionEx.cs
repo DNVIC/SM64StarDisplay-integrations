@@ -1,4 +1,7 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -10,17 +13,102 @@ using System.Threading.Tasks;
 
 namespace StarDisplay
 {
+    public class LineDescriptionExSpecifiedConcreteClassConverter : DefaultContractResolver
+    {
+        protected override JsonConverter ResolveContractConverter(Type objectType)
+        {
+            if (typeof(LineDescriptionEx).IsAssignableFrom(objectType) && !objectType.IsAbstract)
+                return null; // pretend TableSortRuleConvert is not specified (thus avoiding a stack overflow)
+
+            return base.ResolveContractConverter(objectType);
+        }
+    }
+
+    public class LineDescriptionExConverter : JsonConverter
+    {
+        static JsonSerializerSettings SpecifiedSubclassConversion = new JsonSerializerSettings()
+        { ContractResolver = new LineDescriptionExSpecifiedConcreteClassConverter() };
+
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(LineDescriptionEx);
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            if (reader.TokenType == JsonToken.Null)
+                return null;
+
+            JObject jo = JObject.Load(reader);
+            switch (jo["Type"].Value<int>())
+            {
+                case 1:
+                    return JsonConvert.DeserializeObject<StarsLineDescription>(jo.ToString(), SpecifiedSubclassConversion);
+                case 2:
+                    return JsonConvert.DeserializeObject<TextOnlyLineDescription>(jo.ToString(), SpecifiedSubclassConversion);
+                default:
+                    throw new Exception();
+            }
+        }
+        public override bool CanWrite
+        {
+            get { return false; }
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            throw new NotImplementedException(); // won't be called because CanWrite returns false
+        }
+    }
+
+    public class ImageConverter : JsonConverter
+    {
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            string text = (string)reader.Value;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return Resource.gold_star;
+            }
+            return Image.FromStream(new MemoryStream(Convert.FromBase64String(text)));
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            Image obj = (Image)value;
+            MemoryStream memoryStream = new MemoryStream();
+            obj.Save(memoryStream, ImageFormat.Png);
+            byte[] value2 = memoryStream.ToArray();
+            writer.WriteValue(value2);
+        }
+
+        public override bool CanConvert(Type objectType)
+        {
+            return objectType == typeof(Image);
+        }
+    }
+
     [Serializable]
+    [JsonConverter(typeof(LineDescriptionExConverter))]
     public abstract class LineDescriptionEx
     {
         public abstract void DrawBase(GraphicsManager gm, int lineNumber, bool isSecret);
         public abstract bool IsEmpty();
+        public abstract void FixType();
     }
 
     [Serializable]
     public class TextOnlyLineDescription : LineDescriptionEx
     {
         public string text;
+        
+        public int Type = 2;
+
+        public override void FixType()
+        {
+            Type = 2;
+        }
+
         public TextOnlyLineDescription(string text)
         {
             this.text = text;
@@ -59,6 +147,13 @@ namespace StarDisplay
         public byte highlightStarMask;
         public int highlightOffset;
 
+        public int Type = 1;
+
+        public override void FixType()
+        {
+            Type = 1;
+        }
+
         public StarsLineDescription(string text, byte starMask, int offset, byte highlightStarMask, int highlightOffset)
         {
             this.text = text;
@@ -95,11 +190,16 @@ namespace StarDisplay
         public List<LineDescriptionEx> courseDescription;
         public List<LineDescriptionEx> secretDescription;
 
+        [JsonConverter(typeof(ImageConverter))]
         public Bitmap goldStar;
+        [JsonConverter(typeof(ImageConverter))]
         public Bitmap darkStar;
-        public Bitmap invertedStar;
+        [JsonConverter(typeof(ImageConverter))]
         public Bitmap redOutline;
+        [JsonConverter(typeof(ImageConverter))]
         public Bitmap greenOutline;
+        [JsonConverter(typeof(ImageConverter))]
+        public Bitmap invertedStar;
 
         public string starAmount;
 
@@ -107,252 +207,11 @@ namespace StarDisplay
 
         public bool useEmptyStars;
 
-        // Method for converting from old to new Layouts
-        public LayoutDescriptionEx(LayoutDescription ld)
+        // JSON
+        public LayoutDescriptionEx()
         {
-            starsShown = 7;
-
-            courseDescription = new List<LineDescriptionEx>();
-            secretDescription = new List<LineDescriptionEx>();
-
-            foreach (LineDescription lined in ld.courseDescription)
-            {
-                LineDescriptionEx lde = null;
-
-                if (lined != null)
-                {
-                    if (lined.isTextOnly)
-                    {
-                        lde = new TextOnlyLineDescription(lined.text);
-                    }
-                    else
-                    {
-                        byte highlightStarMask = 0;
-                        int highlightStarOffset = 0;
-
-                        if (lined.text == "WC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 1;
-                        }
-
-                        if (lined.text == "MC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 2;
-                        }
-
-                        if (lined.text == "VC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 3;
-                        }
-
-                        if (lined.text == "B1")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 4 | 1 << 6;
-                        }
-
-                        if (lined.text == "B2")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 5 | 1 << 7;
-                        }
-
-                        lde = new StarsLineDescription(lined.text, (byte)(lined.starMask >> 1 | (1 << 7)), lined.offset + 8, highlightStarMask, highlightStarOffset);
-                    }
-                }
-
-                courseDescription.Add(lde);
-            }
-
-            foreach (LineDescription lined in ld.secretDescription)
-            {
-                LineDescriptionEx lde = null;
-
-                if (lined != null)
-                {
-                    if (lined.isTextOnly)
-                    {
-                        lde = new TextOnlyLineDescription(lined.text);
-                    }
-                    else
-                    {
-                        byte highlightStarMask = 0;
-                        int highlightStarOffset = 0;
-
-                        if (lined.text == "WC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 1;
-                        }
-
-                        if (lined.text == "MC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 2;
-                        }
-
-                        if (lined.text == "VC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 3;
-                        }
-
-                        if (lined.text == "B1")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 4 | 1 << 6;
-                        }
-
-                        if (lined.text == "B2")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 5 | 1 << 7;
-                        }
-
-                        lde = new StarsLineDescription(lined.text, (byte)(lined.starMask >> 1 | (1 << 7)), lined.offset + 8, highlightStarMask, highlightStarOffset);
-                    }
-                }
-
-                secretDescription.Add(lde);
-            }
-
-            this.goldStar = ld.goldStar;
-            this.darkStar = ld.darkStar;
-            this.redOutline = ld.redOutline;
-            this.greenOutline = ld.greenOutline;
-            this.starAmount = ld.starAmount;
-
-            Trim();
         }
 
-        public LayoutDescriptionEx(LineDescription[] courseDescriptionOut, LineDescription[] secretDescriptionOut, Bitmap star, string starAmount)
-        {
-            starsShown = 7;
-
-            courseDescription = new List<LineDescriptionEx>();
-            secretDescription = new List<LineDescriptionEx>();
-
-            foreach (LineDescription lined in courseDescriptionOut)
-            {
-                LineDescriptionEx lde = null;
-
-                if (lined != null)
-                {
-                    if (lined.isTextOnly)
-                    {
-                        lde = new TextOnlyLineDescription(lined.text);
-                    }
-                    else
-                    {
-                        byte highlightStarMask = 0;
-                        int highlightStarOffset = 0;
-
-                        if (lined.text == "WC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 1;
-                        }
-
-                        if (lined.text == "MC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 2;
-                        }
-
-                        if (lined.text == "VC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 3;
-                        }
-
-                        if (lined.text == "B1")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 4 | 1 << 6;
-                        }
-
-                        if (lined.text == "B2")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 5 | 1 << 7;
-                        }
-
-                        lde = new StarsLineDescription(lined.text, (byte)((lined.starMask >> 1) | 1 << 7), lined.offset + 8, highlightStarMask, highlightStarOffset);
-                    }
-                }
-
-                courseDescription.Add(lde);
-            }
-
-            foreach (LineDescription lined in secretDescriptionOut)
-            {
-                LineDescriptionEx lde = null;
-
-                if (lined != null)
-                {
-                    if (lined.isTextOnly)
-                    {
-                        lde = new TextOnlyLineDescription(lined.text);
-                    }
-                    else
-                    {
-                        byte highlightStarMask = 0;
-                        int highlightStarOffset = 0;
-
-                        if (lined.text == "WC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 1;
-                        }
-
-                        if (lined.text == "MC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 2;
-                        }
-
-                        if (lined.text == "VC")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 3;
-                        }
-
-                        if (lined.text == "B1")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 4 | 1 << 6;
-                        }
-
-                        if (lined.text == "B2")
-                        {
-                            highlightStarOffset = 0xB;
-                            highlightStarMask = 1 << 5 | 1 << 7;
-                        }
-
-                        lde = new StarsLineDescription(lined.text, (byte)(lined.starMask >> 1 | (1 << 7)), lined.offset + 8, highlightStarMask, highlightStarOffset);
-                    }
-                }
-
-                secretDescription.Add(lde);
-            }
-            
-            this.starAmount = starAmount;
-
-            Trim();
-
-            goldStar = star;
-            darkStar = new Bitmap(goldStar.Width, goldStar.Height);
-            if (goldStar.Width != 20 || goldStar.Height != 20)
-                Compress();
-
-            GenerateInvertedStar();
-            GenerateDarkStar();
-            GenerateOutline();
-        }
-        
         public LayoutDescriptionEx(List<LineDescriptionEx> courseDescription, List<LineDescriptionEx> secretDescription, Bitmap star, string starAmount, int starsShown)
         {
             this.starsShown = starsShown;
@@ -436,6 +295,17 @@ namespace StarDisplay
                 else
                     break;
             }
+
+            foreach (var ld in courseDescription)
+            {
+                if (ld is object)
+                    ld.FixType();
+            }
+            foreach (var ld in secretDescription)
+            {
+                if (ld is object)
+                    ld.FixType();
+            }
         }
 
         public void PrepareForEdit()
@@ -504,59 +374,6 @@ namespace StarDisplay
             darkStar = darkCompressedImage;
         }
 
-        /*
-        public byte[] SerializeExternal()
-        {
-            Trim();
-            MemoryStream ms = new MemoryStream();
-
-            foreach (LineDescriptionEx lind in courseDescription)
-            {
-                if (lind == null) continue;
-                byte[] data = lind.Serialize(0); //control&2==0 -> course
-                ms.Write(data, 0, data.Length);
-            }
-
-            foreach (LineDescriptionEx lind in secretDescription)
-            {
-                if (lind == null) continue;
-                byte[] data = lind.Serialize(2); //control&2!=0 -> secret
-                ms.Write(data, 0, data.Length);
-            }
-
-            return ms.ToArray();
-        }
-
-        static public LayoutDescriptionEx DeserializeExternal(byte[] data, Bitmap img)
-        {
-            List<LineDescription> courseLD = new List<LineDescription>();
-            List<LineDescription> secretLD = new List<LineDescription>();
-
-            int courseCounter = 0;
-            int secretCounter = 0;
-
-            BinaryReader ms = new BinaryReader(new MemoryStream(data));
-            int stars = 0;
-
-            while (ms.BaseStream.Position != ms.BaseStream.Length)
-            {
-                LineDescription lind = LineDescription.Deserialize(ms, out bool isSecret);
-                if (!lind.isTextOnly) stars += MemoryManager.countStars((byte)(lind.starMask));
-
-                if (isSecret)
-                {
-                    secretLD[secretCounter++] = lind;
-                }
-                else
-                {
-                    courseLD[courseCounter++] = lind;
-                }
-            }
-
-            return new LayoutDescriptionEx(courseLD, secretLD, img, stars.ToString());
-        }
-        */
-
         public void RecountStars()
         {
             int stars = 0;
@@ -583,32 +400,34 @@ namespace StarDisplay
         //TODO: Store in file
         static public LayoutDescriptionEx GenerateDefault()
         {
-            LineDescription[] courseLD = new LineDescription[16];
-            LineDescription[] secretLD = new LineDescription[16];
+            List<LineDescriptionEx> courseLD = new LineDescriptionEx[16].ToList();
+            List<LineDescriptionEx> secretLD = new LineDescriptionEx[16].ToList();
 
             int[] linesForSecrets = { 0, 1, 2, 3, 9, 5, 6, 7, 13, 14, 15, 11 };
-            string[] namesForSecrets = { "--", "B1", "B2", "B3", "Sl", "MC", "WC", "VC", "S1", "S2", "S3", "OW" };
+            int[] offsetForSecrets = { 0, 0xb, 0xb, 0, 0, 0xb, 0xb, 0xb, 0, 0, 0, 0 };
+            byte[] highlightForSecrets = { 0, 1 << 4 | 1 << 6, 1 << 5 | 1 << 7, 0, 0, 1 << 2, 1 << 1, 1 << 3, 0, 0, 0, 0 };
+            string[] namesForSecrets  = { "--", "B1", "B2", "B3", "Sl", "MC", "WC", "VC", "S1", "S2", "S3", "OW" };
 
-            courseLD[0] = new LineDescription("Main Courses", true, 0, 0);
+            courseLD[0] = new TextOnlyLineDescription("Main Courses");
             for (int course = 1; course <= 15; course++)
             {
                 string drawString = course.ToString("D2");
-                courseLD[course] = new LineDescription(drawString, false, 255, course + 3);
+                courseLD[course] = new StarsLineDescription(drawString, 255, course + 11, 0, 0);
             }
 
             for (int course = 1; course <= 10; course++) //Secret course
             {
-                secretLD[linesForSecrets[course]] = new LineDescription(namesForSecrets[course], false, 255, course + 18);
+                secretLD[linesForSecrets[course]] = new StarsLineDescription(namesForSecrets[course], 255, course + 26, highlightForSecrets[course], offsetForSecrets[course]);
             }
-            secretLD[linesForSecrets[11]] = new LineDescription(namesForSecrets[11], false, 255, 0);
+            secretLD[linesForSecrets[11]] = new StarsLineDescription(namesForSecrets[11], 255, 8, 0, 0);
 
-            secretLD[0] = new LineDescription("Bowser Courses", true, 0, 0);
-            secretLD[4] = new LineDescription("Cap Levels", true, 0, 0);
-            secretLD[8] = new LineDescription("Slide", true, 0, 0);
-            secretLD[10] = new LineDescription("Overworld Stars", true, 0, 0);
-            secretLD[12] = new LineDescription("Secret Stars", true, 0, 0);
+            secretLD[0] = new TextOnlyLineDescription("Bowser Courses");
+            secretLD[4] = new TextOnlyLineDescription("Cap Levels");
+            secretLD[8] = new TextOnlyLineDescription("Slide");
+            secretLD[10] = new TextOnlyLineDescription("Overworld Stars");
+            secretLD[12] = new TextOnlyLineDescription("Secret Stars");
 
-            return new LayoutDescriptionEx(courseLD, secretLD, Resource.gold_star, "182");
+            return new LayoutDescriptionEx(courseLD, secretLD, Resource.gold_star, "182", 7);
         }
     }
 }
