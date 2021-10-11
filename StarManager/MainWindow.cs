@@ -26,6 +26,7 @@ namespace StarDisplay
         DownloadManager dm;
         SettingsManager sm;
         SyncLoginForm slf;
+        RMRLoginForm rlf;
 
         System.Threading.Timer timer;
         
@@ -1244,6 +1245,15 @@ namespace StarDisplay
             {
                 slf = new SyncLoginForm();
                 slf.Show();
+            }
+        }
+
+        private void rmrToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (rlf == null || rlf.isClosed)
+            {
+                rlf = new RMRLoginForm();
+                rlf.Show();
             }
         }
 

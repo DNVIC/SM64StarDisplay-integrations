@@ -393,7 +393,6 @@ namespace StarDisplay
                     stars += MemoryManager.countStars(sld.starMask, starsShown);
                 }
             }
-
             starAmount = stars.ToString();
         }
 

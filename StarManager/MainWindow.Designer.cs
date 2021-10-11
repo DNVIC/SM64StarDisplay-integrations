@@ -68,6 +68,7 @@
             this.resetHighlightToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.killPJ64ToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.syncToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.rmrToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.lockoutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.enableLockoutToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.clearOtherPlayerScoreToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -98,6 +99,7 @@
             this.iconsToolStripMenuItem,
             this.advancedToolStripMenuItem,
             this.syncToolStripMenuItem,
+            this.rmrToolStripMenuItem,
             this.lockoutToolStripMenuItem,
             this.toolStripMenuItem26});
             this.menuStrip.Name = "menuStrip";
@@ -394,6 +396,13 @@
             this.syncToolStripMenuItem.Text = "Sync Online";
             this.syncToolStripMenuItem.Click += new System.EventHandler(this.syncToolStripMenuItem_Click);
             // 
+            // rmrToolStripMenuItem
+            // 
+            this.rmrToolStripMenuItem.Name = "rmrToolStripMenuItem";
+            this.rmrToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.rmrToolStripMenuItem.Text = "RMR Syncing";
+            this.rmrToolStripMenuItem.Click += new System.EventHandler(this.rmrToolStripMenuItem_Click);
+            // 
             // lockoutToolStripMenuItem
             // 
             this.lockoutToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
@@ -488,6 +497,7 @@
         private System.Windows.Forms.ToolStripMenuItem warpToLevelToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem killPJ64ToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem syncToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem rmrToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem useEmptyStarsToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem lockoutToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem enableLockoutToolStripMenuItem;

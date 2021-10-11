@@ -916,6 +916,7 @@ namespace StarDisplay
 
             yield return new StarLayoutFiniAction(ld.GetLength());
             yield return new StarTextLineDrawAction();
+            SocketManager.SetStars(starCount);  // if someone decides to look through this for some reason, this was the hardest thing to find and it took me forever to find it
             yield return new StringLineDrawAction(starCount.ToString().PadLeft(3) + "/" + ld.starAmount.PadRight(3));
             yield return new RedsSecretsDrawAction(reds, totalReds, secrets, totalSecrets, activePanels, totalPanels);
         }
