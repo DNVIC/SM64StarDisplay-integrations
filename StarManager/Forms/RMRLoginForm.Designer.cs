@@ -44,7 +44,7 @@
             this.serverTextBox.Name = "serverTextBox";
             this.serverTextBox.Size = new System.Drawing.Size(79, 20);
             this.serverTextBox.TabIndex = 0;
-            this.serverTextBox.Text = "dnvic.com";
+            this.serverTextBox.Text = "52.224.165.217";
             // 
             // textBox2
             // 
@@ -52,7 +52,7 @@
             this.textBox2.Name = "textBox2";
             this.textBox2.Size = new System.Drawing.Size(154, 20);
             this.textBox2.TabIndex = 1;
-            this.textBox2.Text = "Password";
+            this.textBox2.Text = "Username";
             // 
             // button1
             // 
@@ -105,7 +105,7 @@
             this.textBoxCategory.Name = "textBoxCategory";
             this.textBoxCategory.Size = new System.Drawing.Size(154, 20);
             this.textBoxCategory.TabIndex = 10;
-            this.textBoxCategory.Text = "Username";
+            this.textBoxCategory.Text = "Password";
             // 
             // RMRLoginForm
             // 

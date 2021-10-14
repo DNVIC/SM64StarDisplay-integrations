@@ -33,7 +33,7 @@ namespace StarDisplay
             }
             try
             {
-                sm = new SocketManager(serverTextBox.Text, int.Parse(portTextBox.Text), textBoxCategory.Text);
+                sm = new SocketManager(serverTextBox.Text, int.Parse(portTextBox.Text), textBoxCategory.Text, textBox2.Text);
                 button1.Text = "Stop";
             }
             catch (Exception ex)
